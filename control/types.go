@@ -57,6 +57,14 @@ type PrintableString OctetString
 
 type ActionDefinition OctetString
 
+type Real float64
+
+type Null int32
+
+type MeasID int64
+
+type MeasName PrintableString
+
 type BitString struct {
 	Buf        []byte
 	Size       int
@@ -344,7 +352,6 @@ type PMContainerType struct {
 }
 
 type MeasLabelInfo struct {
-	CellGlobalID     *NRCGIType
 	PLMNID           *OctetString // PLMN_Identity_t
 	SliceID          *SliceIDType // SNSSAI
 	FiveQI           int64
@@ -364,16 +371,17 @@ type MeasLabelInfo struct {
 }
 
 type MeasInfoItem struct {
-	MeasID         int64
-	MeasName       *PrintableString
+	MeasType       int32
+	Measurement    interface{}
 	LabelInfoCount int
 	LabelInfoList  []MeasLabelInfo
 }
 
-type TestConditionInfo stuct {
+type TestConditionInfo struct {
 	TestConditionType int32
-	Expression int32
-	Value interface{}
+	Expression        int32
+	ValueType         int32
+	Value             interface{}
 }
 
 type MatchingCond struct {
@@ -382,8 +390,8 @@ type MatchingCond struct {
 }
 
 type MeasInfoUeidItem struct {
-	MeasID            int64
-	MeasName          *PrintableString
+	MeasType          int32
+	Measurement       interface{}
 	MatchingCondCount int
 	MatchingCondList  []MatchingCond
 	MatchedUeidCount  int
@@ -391,10 +399,8 @@ type MeasInfoUeidItem struct {
 }
 
 type MeasurementRecordItem struct {
-	MeasRecordType int32
-	Integer        int64
-	Real           float64
-	NoValue        int32
+	MeasRecordType  int32
+	MeasRecordValue interface{}
 }
 
 type MeasurementRecord struct {
@@ -404,7 +410,7 @@ type MeasurementRecord struct {
 
 type IndicationMessageFormat1 struct {
 	SubscriptID   *Integer
-	MeasObjID     *PrintableString
+	CellObjID     *PrintableString
 	GranulPeriod  int64
 	MeasInfoCount int
 	MeasInfoList  []MeasInfoItem

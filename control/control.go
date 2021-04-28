@@ -1,7 +1,6 @@
 package control
 
 import (
-	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -11,20 +10,19 @@ import (
 	"time"
 
 	"gerrit.o-ran-sc.org/r/ric-plt/xapp-frame/pkg/xapp"
-	"github.com/go-redis/redis"
-	//	"bytes"
+	influxdb "github.com/influxdata/influxdb1-client/v2"
 )
 
 type Control struct {
-	ranList               []string             //nodeB list
-	eventCreateExpired    int32                //maximum time for the RIC Subscription Request event creation procedure in the E2 Node
-	eventDeleteExpired    int32                //maximum time for the RIC Subscription Request event deletion procedure in the E2 Node
-	rcChan                chan *xapp.RMRParams //channel for receiving rmr message
-	client                *redis.Client        //redis client
-	eventCreateExpiredMap map[string]bool      //map for recording the RIC Subscription Request event creation procedure is expired or not
-	eventDeleteExpiredMap map[string]bool      //map for recording the RIC Subscription Request event deletion procedure is expired or not
-	eventCreateExpiredMu  *sync.Mutex          //mutex for eventCreateExpiredMap
-	eventDeleteExpiredMu  *sync.Mutex          //mutex for eventDeleteExpiredMap
+	ranList            []string             //nodeB list
+	eventCreateExpired int32                //maximum time for the RIC Subscription Request event creation procedure in the E2 Node
+	eventDeleteExpired int32                //maximum time for the RIC Subscription Request event deletion procedure in the E2 Node
+	rcChan             chan *xapp.RMRParams //channel for receiving rmr message
+	client             influxdb.Client      //influxdb client
+	eventCreateExpiredMap map[string]bool //map for recording the RIC Subscription Request event creation procedure is expired or not
+	eventDeleteExpiredMap map[string]bool //map for recording the RIC Subscription Request event deletion procedure is expired or not
+	eventCreateExpiredMu  *sync.Mutex     //mutex for eventCreateExpiredMap
+	eventDeleteExpiredMu  *sync.Mutex     //mutex for eventDeleteExpiredMap
 }
 
 func init() {
@@ -41,14 +39,20 @@ func init() {
 
 func NewControl() Control {
 	str := os.Getenv("ranList")
+	url := os.Getenv("influxAddr")
+	client, err := influxdb.NewHTTPClient(influxdb.HTTPConfig{
+		Addr:     url,
+		Username: "admin",
+		Password: "",
+	})
+	if err != nil {
+		panic(err)
+	}
+
 	return Control{strings.Split(str, ","),
 		5, 5,
 		make(chan *xapp.RMRParams),
-		redis.NewClient(&redis.Options{
-			Addr:     os.Getenv("DBAAS_SERVICE_HOST") + ":" + os.Getenv("DBAAS_SERVICE_PORT"), //"localhost:6379"
-			Password: "",
-			DB:       0,
-		}),
+		client,
 		make(map[string]bool),
 		make(map[string]bool),
 		&sync.Mutex{},
@@ -63,11 +67,6 @@ func ReadyCB(i interface{}) {
 }
 
 func (c *Control) Run() {
-	_, err := c.client.Ping().Result()
-	if err != nil {
-		xapp.Logger.Error("Failed to connect to Redis DB with %v", err)
-		log.Printf("Failed to connect to Redis DB with %v", err)
-	}
 	if len(c.ranList) > 0 {
 		xapp.SetReadyCB(ReadyCB, c)
 		xapp.Run(c)
@@ -175,161 +174,7 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 		return
 	}
 
-	var cellIDHdr string
-	var plmnIDHdr string
-	var sliceIDHdr int32
-	var fiveQIHdr int64
-
 	log.Printf("-----------RIC Indication Header-----------")
-	// if indicationHdr.IndHdrType == 1 {
-	// 	log.Printf("RIC Indication Header Format: %d", indicationHdr.IndHdrType)
-	// 	indHdrFormat1 := indicationHdr.IndHdr.(*IndicationHeaderFormat1)
-
-	// 	log.Printf("GlobalKPMnodeIDType: %d", indHdrFormat1.GlobalKPMnodeIDType)
-
-	// 	if indHdrFormat1.GlobalKPMnodeIDType == 1 {
-	// 		globalKPMnodegNBID := indHdrFormat1.GlobalKPMnodeID.(*GlobalKPMnodegNBIDType)
-
-	// 		globalgNBID := globalKPMnodegNBID.GlobalgNBID
-
-	// 		log.Printf("PlmnID: %x", globalgNBID.PlmnID.Buf)
-	// 		log.Printf("gNB ID Type: %d", globalgNBID.GnbIDType)
-	// 		if globalgNBID.GnbIDType == 1 {
-	// 			gNBID := globalgNBID.GnbID.(*GNBID)
-	// 			log.Printf("gNB ID ID: %x, Unused: %d", gNBID.Buf, gNBID.BitsUnused)
-	// 		}
-
-	// 		if globalKPMnodegNBID.GnbCUUPID != nil {
-	// 			log.Printf("gNB-CU-UP ID: %x", globalKPMnodegNBID.GnbCUUPID.Buf)
-	// 		}
-
-	// 		if globalKPMnodegNBID.GnbDUID != nil {
-	// 			log.Printf("gNB-DU ID: %x", globalKPMnodegNBID.GnbDUID.Buf)
-	// 		}
-	// 	} else if indHdrFormat1.GlobalKPMnodeIDType == 2 {
-	// 		globalKPMnodeengNBID := indHdrFormat1.GlobalKPMnodeID.(*GlobalKPMnodeengNBIDType)
-
-	// 		log.Printf("PlmnID: %x", globalKPMnodeengNBID.PlmnID.Buf)
-	// 		log.Printf("en-gNB ID Type: %d", globalKPMnodeengNBID.GnbIDType)
-	// 		if globalKPMnodeengNBID.GnbIDType == 1 {
-	// 			engNBID := globalKPMnodeengNBID.GnbID.(*ENGNBID)
-	// 			log.Printf("en-gNB ID ID: %x, Unused: %d", engNBID.Buf, engNBID.BitsUnused)
-	// 		}
-	// 	} else if indHdrFormat1.GlobalKPMnodeIDType == 3 {
-	// 		globalKPMnodengeNBID := indHdrFormat1.GlobalKPMnodeID.(*GlobalKPMnodengeNBIDType)
-
-	// 		log.Printf("PlmnID: %x", globalKPMnodengeNBID.PlmnID.Buf)
-	// 		log.Printf("ng-eNB ID Type: %d", globalKPMnodengeNBID.EnbIDType)
-	// 		if globalKPMnodengeNBID.EnbIDType == 1 {
-	// 			ngeNBID := globalKPMnodengeNBID.EnbID.(*NGENBID_Macro)
-	// 			log.Printf("ng-eNB ID ID: %x, Unused: %d", ngeNBID.Buf, ngeNBID.BitsUnused)
-	// 		} else if globalKPMnodengeNBID.EnbIDType == 2 {
-	// 			ngeNBID := globalKPMnodengeNBID.EnbID.(*NGENBID_ShortMacro)
-	// 			log.Printf("ng-eNB ID ID: %x, Unused: %d", ngeNBID.Buf, ngeNBID.BitsUnused)
-	// 		} else if globalKPMnodengeNBID.EnbIDType == 3 {
-	// 			ngeNBID := globalKPMnodengeNBID.EnbID.(*NGENBID_LongMacro)
-	// 			log.Printf("ng-eNB ID ID: %x, Unused: %d", ngeNBID.Buf, ngeNBID.BitsUnused)
-	// 		}
-	// 	} else if indHdrFormat1.GlobalKPMnodeIDType == 4 {
-	// 		globalKPMnodeeNBID := indHdrFormat1.GlobalKPMnodeID.(*GlobalKPMnodeeNBIDType)
-
-	// 		log.Printf("PlmnID: %x", globalKPMnodeeNBID.PlmnID.Buf)
-	// 		log.Printf("eNB ID Type: %d", globalKPMnodeeNBID.EnbIDType)
-	// 		if globalKPMnodeeNBID.EnbIDType == 1 {
-	// 			eNBID := globalKPMnodeeNBID.EnbID.(*ENBID_Macro)
-	// 			log.Printf("eNB ID ID: %x, Unused: %d", eNBID.Buf, eNBID.BitsUnused)
-	// 		} else if globalKPMnodeeNBID.EnbIDType == 2 {
-	// 			eNBID := globalKPMnodeeNBID.EnbID.(*ENBID_Home)
-	// 			log.Printf("eNB ID ID: %x, Unused: %d", eNBID.Buf, eNBID.BitsUnused)
-	// 		} else if globalKPMnodeeNBID.EnbIDType == 3 {
-	// 			eNBID := globalKPMnodeeNBID.EnbID.(*ENBID_ShortMacro)
-	// 			log.Printf("eNB ID ID: %x, Unused: %d", eNBID.Buf, eNBID.BitsUnused)
-	// 		} else if globalKPMnodeeNBID.EnbIDType == 4 {
-	// 			eNBID := globalKPMnodeeNBID.EnbID.(*ENBID_LongMacro)
-	// 			log.Printf("eNB ID ID: %x, Unused: %d", eNBID.Buf, eNBID.BitsUnused)
-	// 		}
-
-	// 	}
-
-	// 	if indHdrFormat1.NRCGI != nil {
-
-	// 		log.Printf("nRCGI.PlmnID: %x", indHdrFormat1.NRCGI.PlmnID.Buf)
-	// 		log.Printf("nRCGI.NRCellID ID: %x, Unused: %d", indHdrFormat1.NRCGI.NRCellID.Buf, indHdrFormat1.NRCGI.NRCellID.BitsUnused)
-
-	// 		cellIDHdr, err = e2sm.ParseNRCGI(*indHdrFormat1.NRCGI)
-	// 		if err != nil {
-	// 			xapp.Logger.Error("Failed to parse NRCGI in RIC Indication Header: %v", err)
-	// 			log.Printf("Failed to parse NRCGI in RIC Indication Header: %v", err)
-	// 			return
-	// 		}
-	// 	} else {
-	// 		cellIDHdr = ""
-	// 	}
-
-	// 	if indHdrFormat1.PlmnID != nil {
-	// 		log.Printf("PlmnID: %x", indHdrFormat1.PlmnID.Buf)
-
-	// 		plmnIDHdr, err = e2sm.ParsePLMNIdentity(indHdrFormat1.PlmnID.Buf, indHdrFormat1.PlmnID.Size)
-	// 		if err != nil {
-	// 			xapp.Logger.Error("Failed to parse PlmnID in RIC Indication Header: %v", err)
-	// 			log.Printf("Failed to parse PlmnID in RIC Indication Header: %v", err)
-	// 			return
-	// 		}
-	// 	} else {
-	// 		plmnIDHdr = ""
-	// 	}
-
-	// 	if indHdrFormat1.SliceID != nil {
-	// 		log.Printf("SST: %x", indHdrFormat1.SliceID.SST.Buf)
-
-	// 		if indHdrFormat1.SliceID.SD != nil {
-	// 			log.Printf("SD: %x", indHdrFormat1.SliceID.SD.Buf)
-	// 		}
-
-	// 		sliceIDHdr, err = e2sm.ParseSliceID(*indHdrFormat1.SliceID)
-	// 		if err != nil {
-	// 			xapp.Logger.Error("Failed to parse SliceID in RIC Indication Header: %v", err)
-	// 			log.Printf("Failed to parse SliceID in RIC Indication Header: %v", err)
-	// 			return
-	// 		}
-	// 	} else {
-	// 		sliceIDHdr = -1
-	// 	}
-
-	// 	if indHdrFormat1.FiveQI != -1 {
-	// 		log.Printf("5QI: %d", indHdrFormat1.FiveQI)
-	// 	}
-	// 	fiveQIHdr = indHdrFormat1.FiveQI
-
-	// 	if indHdrFormat1.Qci != -1 {
-	// 		log.Printf("QCI: %d", indHdrFormat1.Qci)
-	// 	}
-
-	// 	if indHdrFormat1.UeMessageType != -1 {
-	// 		log.Printf("Ue Report type: %d", indHdrFormat1.UeMessageType)
-	// 	}
-
-	// 	if indHdrFormat1.GnbDUID != nil {
-	// 		log.Printf("gNB-DU-ID: %x", indHdrFormat1.GnbDUID.Buf)
-	// 	}
-
-	// 	if indHdrFormat1.GnbNameType == 1 {
-	// 		log.Printf("gNB-DU-Name: %x", (indHdrFormat1.GnbName.(*GNB_DU_Name)).Buf)
-	// 	} else if indHdrFormat1.GnbNameType == 2 {
-	// 		log.Printf("gNB-CU-CP-Name: %x", (indHdrFormat1.GnbName.(*GNB_CU_CP_Name)).Buf)
-	// 	} else if indHdrFormat1.GnbNameType == 3 {
-	// 		log.Printf("gNB-CU-UP-Name: %x", (indHdrFormat1.GnbName.(*GNB_CU_UP_Name)).Buf)
-	// 	}
-
-	// 	if indHdrFormat1.GlobalgNBID != nil {
-	// 		log.Printf("PlmnID: %x", indHdrFormat1.GlobalgNBID.PlmnID.Buf)
-	// 		log.Printf("gNB ID Type: %d", indHdrFormat1.GlobalgNBID.GnbIDType)
-	// 		if indHdrFormat1.GlobalgNBID.GnbIDType == 1 {
-	// 			gNBID := indHdrFormat1.GlobalgNBID.GnbID.(*GNBID)
-	// 			log.Printf("gNB ID ID: %x, Unused: %d", gNBID.Buf, gNBID.BitsUnused)
-	// 		}
-	// 	}
-	// }
 	if indicationHdr.IndHdrType == 1 {
 		log.Printf("RIC Indication Header Format: %d", indicationHdr.IndHdrType)
 		indHdrFormat1 := indicationHdr.IndHdr.(*IndicationHeaderFormat1)
@@ -432,552 +277,9 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 		return
 	}
 
-	var flag bool
-	var containerType int32
-	var timestampPDCPBytes *Timestamp
-	var dlPDCPBytes int64
-	var ulPDCPBytes int64
-	var timestampPRB *Timestamp
-	var availPRBDL int64
-	var availPRBUL int64
-
 	log.Printf("-----------RIC Indication Message-----------")
-	log.Printf("StyleType: %d", indMsg.StyleType)
+	log.Printf("StyleType: %d", indMsg.IndMsgType)
 	if indMsg.IndMsgType == 1 {
-		// log.Printf("RIC Indication Message Format: %d", indMsg.IndMsgType)
-
-		// indMsgFormat1 := indMsg.IndMsg.(*IndicationMessageFormat1)
-
-		// log.Printf("PMContainerCount: %d", indMsgFormat1.PMContainerCount)
-
-		// for i := 0; i < indMsgFormat1.PMContainerCount; i++ {
-		// 	flag = false
-		// 	timestampPDCPBytes = nil
-		// 	dlPDCPBytes = -1
-		// 	ulPDCPBytes = -1
-		// 	timestampPRB = nil
-		// 	availPRBDL = -1
-		// 	availPRBUL = -1
-
-		// 	log.Printf("PMContainer[%d]: ", i)
-
-		// 	pmContainer := indMsgFormat1.PMContainers[i]
-
-		// 	if pmContainer.PFContainer != nil {
-		// 		containerType = pmContainer.PFContainer.ContainerType
-
-		// 		log.Printf("PFContainerType: %d", containerType)
-
-		// 		if containerType == 1 {
-		// 			log.Printf("oDU PF Container: ")
-
-		// 			oDU := pmContainer.PFContainer.Container.(*ODUPFContainerType)
-
-		// 			cellResourceReportCount := oDU.CellResourceReportCount
-		// 			log.Printf("CellResourceReportCount: %d", cellResourceReportCount)
-
-		// 			for j := 0; j < cellResourceReportCount; j++ {
-		// 				log.Printf("CellResourceReport[%d]: ", j)
-
-		// 				cellResourceReport := oDU.CellResourceReports[j]
-
-		// 				log.Printf("nRCGI.PlmnID: %x", cellResourceReport.NRCGI.PlmnID.Buf)
-		// 				log.Printf("nRCGI.nRCellID: %x", cellResourceReport.NRCGI.NRCellID.Buf)
-
-		// 				cellID, err := e2sm.ParseNRCGI(cellResourceReport.NRCGI)
-		// 				if err != nil {
-		// 					xapp.Logger.Error("Failed to parse CellID in DU PF Container: %v", err)
-		// 					log.Printf("Failed to parse CellID in DU PF Container: %v", err)
-		// 					continue
-		// 				}
-		// 				if cellID == cellIDHdr {
-		// 					flag = true
-		// 				}
-
-		// 				log.Printf("TotalofAvailablePRBsDL: %d", cellResourceReport.TotalofAvailablePRBs.DL)
-		// 				log.Printf("TotalofAvailablePRBsUL: %d", cellResourceReport.TotalofAvailablePRBs.UL)
-
-		// 				if flag {
-		// 					availPRBDL = cellResourceReport.TotalofAvailablePRBs.DL
-		// 					availPRBUL = cellResourceReport.TotalofAvailablePRBs.UL
-		// 				}
-
-		// 				servedPlmnPerCellCount := cellResourceReport.ServedPlmnPerCellCount
-		// 				log.Printf("ServedPlmnPerCellCount: %d", servedPlmnPerCellCount)
-
-		// 				for k := 0; k < servedPlmnPerCellCount; k++ {
-		// 					log.Printf("ServedPlmnPerCell[%d]: ", k)
-
-		// 					servedPlmnPerCell := cellResourceReport.ServedPlmnPerCells[k]
-
-		// 					log.Printf("PlmnID: %x", servedPlmnPerCell.PlmnID.Buf)
-
-		// 					if servedPlmnPerCell.DUPM5GC != nil {
-		// 						slicePerPlmnPerCellCount := servedPlmnPerCell.DUPM5GC.SlicePerPlmnPerCellCount
-		// 						log.Printf("SlicePerPlmnPerCellCount: %d", slicePerPlmnPerCellCount)
-
-		// 						for l := 0; l < slicePerPlmnPerCellCount; l++ {
-		// 							log.Printf("SlicePerPlmnPerCell[%d]: ", l)
-
-		// 							slicePerPlmnPerCell := servedPlmnPerCell.DUPM5GC.SlicePerPlmnPerCells[l]
-
-		// 							log.Printf("SliceID.sST: %x", slicePerPlmnPerCell.SliceID.SST.Buf)
-		// 							if slicePerPlmnPerCell.SliceID.SD != nil {
-		// 								log.Printf("SliceID.sD: %x", slicePerPlmnPerCell.SliceID.SD.Buf)
-		// 							}
-
-		// 							fQIPERSlicesPerPlmnPerCellCount := slicePerPlmnPerCell.FQIPERSlicesPerPlmnPerCellCount
-		// 							log.Printf("5QIPerSlicesPerPlmnPerCellCount: %d", fQIPERSlicesPerPlmnPerCellCount)
-
-		// 							for m := 0; m < fQIPERSlicesPerPlmnPerCellCount; m++ {
-		// 								log.Printf("5QIPerSlicesPerPlmnPerCell[%d]: ", m)
-
-		// 								fQIPERSlicesPerPlmnPerCell := slicePerPlmnPerCell.FQIPERSlicesPerPlmnPerCells[m]
-
-		// 								log.Printf("5QI: %d", fQIPERSlicesPerPlmnPerCell.FiveQI)
-		// 								log.Printf("PrbUsageDL: %d", fQIPERSlicesPerPlmnPerCell.PrbUsage.DL)
-		// 								log.Printf("PrbUsageUL: %d", fQIPERSlicesPerPlmnPerCell.PrbUsage.UL)
-		// 							}
-		// 						}
-		// 					}
-
-		// 					if servedPlmnPerCell.DUPMEPC != nil {
-		// 						perQCIReportCount := servedPlmnPerCell.DUPMEPC.PerQCIReportCount
-		// 						log.Printf("PerQCIReportCount: %d", perQCIReportCount)
-
-		// 						for l := 0; l < perQCIReportCount; l++ {
-		// 							log.Printf("PerQCIReports[%d]: ", l)
-
-		// 							perQCIReport := servedPlmnPerCell.DUPMEPC.PerQCIReports[l]
-
-		// 							log.Printf("QCI: %d", perQCIReport.QCI)
-		// 							log.Printf("PrbUsageDL: %d", perQCIReport.PrbUsage.DL)
-		// 							log.Printf("PrbUsageUL: %d", perQCIReport.PrbUsage.UL)
-		// 						}
-		// 					}
-		// 				}
-		// 			}
-		// 		} else if containerType == 2 {
-		// 			log.Printf("oCU-CP PF Container: ")
-
-		// 			oCUCP := pmContainer.PFContainer.Container.(*OCUCPPFContainerType)
-
-		// 			if oCUCP.GNBCUCPName != nil {
-		// 				log.Printf("gNB-CU-CP Name: %x", oCUCP.GNBCUCPName.Buf)
-		// 			}
-
-		// 			log.Printf("NumberOfActiveUEs: %d", oCUCP.CUCPResourceStatus.NumberOfActiveUEs)
-		// 		} else if containerType == 3 {
-		// 			log.Printf("oCU-UP PF Container: ")
-
-		// 			oCUUP := pmContainer.PFContainer.Container.(*OCUUPPFContainerType)
-
-		// 			if oCUUP.GNBCUUPName != nil {
-		// 				log.Printf("gNB-CU-UP Name: %x", oCUUP.GNBCUUPName.Buf)
-		// 			}
-
-		// 			cuUPPFContainerItemCount := oCUUP.CUUPPFContainerItemCount
-		// 			log.Printf("CU-UP PF Container Item Count: %d", cuUPPFContainerItemCount)
-
-		// 			for j := 0; j < cuUPPFContainerItemCount; j++ {
-		// 				log.Printf("CU-UP PF Container Item [%d]: ", j)
-
-		// 				cuUPPFContainerItem := oCUUP.CUUPPFContainerItems[j]
-
-		// 				log.Printf("InterfaceType: %d", cuUPPFContainerItem.InterfaceType)
-
-		// 				cuUPPlmnCount := cuUPPFContainerItem.OCUUPPMContainer.CUUPPlmnCount
-		// 				log.Printf("CU-UP Plmn Count: %d", cuUPPlmnCount)
-
-		// 				for k := 0; k < cuUPPlmnCount; k++ {
-		// 					log.Printf("CU-UP Plmn [%d]: ", k)
-
-		// 					cuUPPlmn := cuUPPFContainerItem.OCUUPPMContainer.CUUPPlmns[k]
-
-		// 					log.Printf("PlmnID: %x", cuUPPlmn.PlmnID.Buf)
-
-		// 					plmnID, err := e2sm.ParsePLMNIdentity(cuUPPlmn.PlmnID.Buf, cuUPPlmn.PlmnID.Size)
-		// 					if err != nil {
-		// 						xapp.Logger.Error("Failed to parse PlmnID in CU-UP PF Container: %v", err)
-		// 						log.Printf("Failed to parse PlmnID in CU-UP PF Container: %v", err)
-		// 						continue
-		// 					}
-
-		// 					if cuUPPlmn.CUUPPM5GC != nil {
-		// 						sliceToReportCount := cuUPPlmn.CUUPPM5GC.SliceToReportCount
-		// 						log.Printf("SliceToReportCount: %d", sliceToReportCount)
-
-		// 						for l := 0; l < sliceToReportCount; l++ {
-		// 							log.Printf("SliceToReport[%d]: ", l)
-
-		// 							sliceToReport := cuUPPlmn.CUUPPM5GC.SliceToReports[l]
-
-		// 							log.Printf("SliceID.sST: %x", sliceToReport.SliceID.SST.Buf)
-		// 							if sliceToReport.SliceID.SD != nil {
-		// 								log.Printf("SliceID.sD: %x", sliceToReport.SliceID.SD.Buf)
-		// 							}
-
-		// 							sliceID, err := e2sm.ParseSliceID(sliceToReport.SliceID)
-		// 							if err != nil {
-		// 								xapp.Logger.Error("Failed to parse sliceID in CU-UP PF Container with PlmnID [%s]: %v", plmnID, err)
-		// 								log.Printf("Failed to parse sliceID in CU-UP PF Container with PlmnID [%s]: %v", plmnID, err)
-		// 								continue
-		// 							}
-
-		// 							fQIPERSlicesPerPlmnCount := sliceToReport.FQIPERSlicesPerPlmnCount
-		// 							log.Printf("5QIPerSlicesPerPlmnCount: %d", fQIPERSlicesPerPlmnCount)
-
-		// 							for m := 0; m < fQIPERSlicesPerPlmnCount; m++ {
-		// 								log.Printf("5QIPerSlicesPerPlmn[%d]: ", m)
-
-		// 								fQIPERSlicesPerPlmn := sliceToReport.FQIPERSlicesPerPlmns[m]
-
-		// 								fiveQI := fQIPERSlicesPerPlmn.FiveQI
-		// 								log.Printf("5QI: %d", fiveQI)
-
-		// 								if plmnID == plmnIDHdr && sliceID == sliceIDHdr && fiveQI == fiveQIHdr {
-		// 									flag = true
-		// 								}
-
-		// 								if fQIPERSlicesPerPlmn.PDCPBytesDL != nil {
-		// 									log.Printf("PDCPBytesDL: %x", fQIPERSlicesPerPlmn.PDCPBytesDL.Buf)
-
-		// 									if flag {
-		// 										dlPDCPBytes, err = e2sm.ParseInteger(fQIPERSlicesPerPlmn.PDCPBytesDL.Buf, fQIPERSlicesPerPlmn.PDCPBytesDL.Size)
-		// 										if err != nil {
-		// 											xapp.Logger.Error("Failed to parse PDCPBytesDL in CU-UP PF Container with PlmnID [%s], SliceID [%d], 5QI [%d]: %v", plmnID, sliceID, fiveQI, err)
-		// 											log.Printf("Failed to parse PDCPBytesDL in CU-UP PF Container with PlmnID [%s], SliceID [%d], 5QI [%d]: %v", plmnID, sliceID, fiveQI, err)
-		// 											continue
-		// 										}
-		// 									}
-		// 								}
-
-		// 								if fQIPERSlicesPerPlmn.PDCPBytesUL != nil {
-		// 									log.Printf("PDCPBytesUL: %x", fQIPERSlicesPerPlmn.PDCPBytesUL.Buf)
-
-		// 									if flag {
-		// 										ulPDCPBytes, err = e2sm.ParseInteger(fQIPERSlicesPerPlmn.PDCPBytesUL.Buf, fQIPERSlicesPerPlmn.PDCPBytesUL.Size)
-		// 										if err != nil {
-		// 											xapp.Logger.Error("Failed to parse PDCPBytesUL in CU-UP PF Container with PlmnID [%s], SliceID [%d], 5QI [%d]: %v", plmnID, sliceID, fiveQI, err)
-		// 											log.Printf("Failed to parse PDCPBytesUL in CU-UP PF Container with PlmnID [%s], SliceID [%d], 5QI [%d]: %v", plmnID, sliceID, fiveQI, err)
-		// 											continue
-		// 										}
-		// 									}
-		// 								}
-		// 							}
-		// 						}
-		// 					}
-
-		// 					if cuUPPlmn.CUUPPMEPC != nil {
-		// 						cuUPPMEPCPerQCIReportCount := cuUPPlmn.CUUPPMEPC.CUUPPMEPCPerQCIReportCount
-		// 						log.Printf("PerQCIReportCount: %d", cuUPPMEPCPerQCIReportCount)
-
-		// 						for l := 0; l < cuUPPMEPCPerQCIReportCount; l++ {
-		// 							log.Printf("PerQCIReport[%d]: ", l)
-
-		// 							cuUPPMEPCPerQCIReport := cuUPPlmn.CUUPPMEPC.CUUPPMEPCPerQCIReports[l]
-
-		// 							log.Printf("QCI: %d", cuUPPMEPCPerQCIReport.QCI)
-
-		// 							if cuUPPMEPCPerQCIReport.PDCPBytesDL != nil {
-		// 								log.Printf("PDCPBytesDL: %x", cuUPPMEPCPerQCIReport.PDCPBytesDL.Buf)
-		// 							}
-		// 							if cuUPPMEPCPerQCIReport.PDCPBytesUL != nil {
-		// 								log.Printf("PDCPBytesUL: %x", cuUPPMEPCPerQCIReport.PDCPBytesUL.Buf)
-		// 							}
-		// 						}
-		// 					}
-		// 				}
-		// 			}
-		// 		} else {
-		// 			xapp.Logger.Error("Unknown PF Container type: %d", containerType)
-		// 			log.Printf("Unknown PF Container type: %d", containerType)
-		// 			continue
-		// 		}
-		// 	}
-
-		// 	if pmContainer.RANContainer != nil {
-		// 		log.Printf("RANContainer: %x", pmContainer.RANContainer.Timestamp.Buf)
-
-		// 		timestamp, _ := e2sm.ParseTimestamp(pmContainer.RANContainer.Timestamp.Buf, pmContainer.RANContainer.Timestamp.Size)
-		// 		log.Printf("Timestamp=[sec: %d, nsec: %d]", timestamp.TVsec, timestamp.TVnsec)
-
-		// 		containerType = pmContainer.RANContainer.ContainerType
-		// 		if containerType == 1 {
-		// 			log.Printf("DU Usage Report: ")
-
-		// 			oDUUE := pmContainer.RANContainer.Container.(*DUUsageReportType)
-
-		// 			for j := 0; j < oDUUE.CellResourceReportItemCount; j++ {
-		// 				cellResourceReportItem := oDUUE.CellResourceReportItems[j]
-
-		// 				log.Printf("nRCGI.PlmnID: %x", cellResourceReportItem.NRCGI.PlmnID.Buf)
-		// 				log.Printf("nRCGI.NRCellID: %x, Unused: %d", cellResourceReportItem.NRCGI.NRCellID.Buf, cellResourceReportItem.NRCGI.NRCellID.BitsUnused)
-
-		// 				servingCellID, err := e2sm.ParseNRCGI(cellResourceReportItem.NRCGI)
-		// 				if err != nil {
-		// 					xapp.Logger.Error("Failed to parse NRCGI in DU Usage Report: %v", err)
-		// 					log.Printf("Failed to parse NRCGI in DU Usage Report: %v", err)
-		// 					continue
-		// 				}
-
-		// 				for k := 0; k < cellResourceReportItem.UeResourceReportItemCount; k++ {
-		// 					ueResourceReportItem := cellResourceReportItem.UeResourceReportItems[k]
-
-		// 					log.Printf("C-RNTI: %x", ueResourceReportItem.CRNTI.Buf)
-
-		// 					ueID, err := e2sm.ParseInteger(ueResourceReportItem.CRNTI.Buf, ueResourceReportItem.CRNTI.Size)
-		// 					if err != nil {
-		// 						xapp.Logger.Error("Failed to parse C-RNTI in DU Usage Report with Serving Cell ID [%s]: %v", servingCellID, err)
-		// 						log.Printf("Failed to parse C-RNTI in DU Usage Report with Serving Cell ID [%s]: %v", servingCellID, err)
-		// 						continue
-		// 					}
-
-		// 					var ueMetrics *UeMetricsEntry
-		// 					if isUeExist, _ := c.client.Exists(strconv.FormatInt(ueID, 10)).Result(); isUeExist == 1 {
-		// 						ueJsonStr, _ := c.client.Get(strconv.FormatInt(ueID, 10)).Result()
-		// 						json.Unmarshal([]byte(ueJsonStr), ueMetrics)
-		// 					} else {
-		// 						ueMetrics = &UeMetricsEntry{}
-		// 					}
-
-		// 					ueMetrics.ServingCellID = servingCellID
-
-		// 					if flag {
-		// 						timestampPRB = timestamp
-		// 					}
-
-		// 					ueMetrics.MeasTimestampPRB.TVsec = timestamp.TVsec
-		// 					ueMetrics.MeasTimestampPRB.TVnsec = timestamp.TVnsec
-
-		// 					if ueResourceReportItem.PRBUsageDL != -1 {
-		// 						ueMetrics.PRBUsageDL = ueResourceReportItem.PRBUsageDL
-		// 					}
-
-		// 					if ueResourceReportItem.PRBUsageUL != -1 {
-		// 						ueMetrics.PRBUsageUL = ueResourceReportItem.PRBUsageUL
-		// 					}
-
-		// 					newUeJsonStr, err := json.Marshal(ueMetrics)
-		// 					if err != nil {
-		// 						xapp.Logger.Error("Failed to marshal UeMetrics with UE ID [%s]: %v", ueID, err)
-		// 						log.Printf("Failed to marshal UeMetrics with UE ID [%s]: %v", ueID, err)
-		// 						continue
-		// 					}
-		// 					err = c.client.Set(strconv.FormatInt(ueID, 10), newUeJsonStr, 0).Err()
-		// 					if err != nil {
-		// 						xapp.Logger.Error("Failed to set UeMetrics into redis with UE ID [%s]: %v", ueID, err)
-		// 						log.Printf("Failed to set UeMetrics into redis with UE ID [%s]: %v", ueID, err)
-		// 						continue
-		// 					}
-		// 				}
-		// 			}
-		// 		} else if containerType == 2 {
-		// 			log.Printf("CU-CP Usage Report: ")
-
-		// 			oCUCPUE := pmContainer.RANContainer.Container.(*CUCPUsageReportType)
-
-		// 			for j := 0; j < oCUCPUE.CellResourceReportItemCount; j++ {
-		// 				cellResourceReportItem := oCUCPUE.CellResourceReportItems[j]
-
-		// 				log.Printf("nRCGI.PlmnID: %x", cellResourceReportItem.NRCGI.PlmnID.Buf)
-		// 				log.Printf("nRCGI.NRCellID: %x, Unused: %d", cellResourceReportItem.NRCGI.NRCellID.Buf, cellResourceReportItem.NRCGI.NRCellID.BitsUnused)
-
-		// 				servingCellID, err := e2sm.ParseNRCGI(cellResourceReportItem.NRCGI)
-		// 				if err != nil {
-		// 					xapp.Logger.Error("Failed to parse NRCGI in CU-CP Usage Report: %v", err)
-		// 					log.Printf("Failed to parse NRCGI in CU-CP Usage Report: %v", err)
-		// 					continue
-		// 				}
-
-		// 				for k := 0; k < cellResourceReportItem.UeResourceReportItemCount; k++ {
-		// 					ueResourceReportItem := cellResourceReportItem.UeResourceReportItems[k]
-
-		// 					log.Printf("C-RNTI: %x", ueResourceReportItem.CRNTI.Buf)
-
-		// 					ueID, err := e2sm.ParseInteger(ueResourceReportItem.CRNTI.Buf, ueResourceReportItem.CRNTI.Size)
-		// 					if err != nil {
-		// 						xapp.Logger.Error("Failed to parse C-RNTI in CU-CP Usage Report with Serving Cell ID [%s]: %v", err)
-		// 						log.Printf("Failed to parse C-RNTI in CU-CP Usage Report with Serving Cell ID [%s]: %v", err)
-		// 						continue
-		// 					}
-
-		// 					var ueMetrics *UeMetricsEntry
-		// 					if isUeExist, _ := c.client.Exists(strconv.FormatInt(ueID, 10)).Result(); isUeExist == 1 {
-		// 						ueJsonStr, _ := c.client.Get(strconv.FormatInt(ueID, 10)).Result()
-		// 						json.Unmarshal([]byte(ueJsonStr), ueMetrics)
-		// 					} else {
-		// 						ueMetrics = &UeMetricsEntry{}
-		// 					}
-
-		// 					ueMetrics.ServingCellID = servingCellID
-
-		// 					ueMetrics.MeasTimeRF.TVsec = timestamp.TVsec
-		// 					ueMetrics.MeasTimeRF.TVnsec = timestamp.TVnsec
-
-		// 					if ueResourceReportItem.ServingCellRF != nil {
-		// 						err = json.Unmarshal(ueResourceReportItem.ServingCellRF.Buf, &ueMetrics.ServingCellRF)
-		// 						if err != nil {
-		// 							xapp.Logger.Error("Failed to Unmarshal ServingCellRF in CU-CP Usage Report with UE ID [%s]: %v", ueID, err)
-		// 							log.Printf("Failed to Unmarshal ServingCellRF in CU-CP Usage Report with UE ID [%s]: %v", ueID, err)
-		// 							continue
-		// 						}
-		// 					}
-
-		// 					if ueResourceReportItem.NeighborCellRF != nil {
-		// 						err = json.Unmarshal(ueResourceReportItem.NeighborCellRF.Buf, &ueMetrics.NeighborCellsRF)
-		// 						if err != nil {
-		// 							xapp.Logger.Error("Failed to Unmarshal NeighborCellRF in CU-CP Usage Report with UE ID [%s]: %v", ueID, err)
-		// 							log.Printf("Failed to Unmarshal NeighborCellRF in CU-CP Usage Report with UE ID [%s]: %v", ueID, err)
-		// 							continue
-		// 						}
-		// 					}
-
-		// 					newUeJsonStr, err := json.Marshal(ueMetrics)
-		// 					if err != nil {
-		// 						xapp.Logger.Error("Failed to marshal UeMetrics with UE ID [%s]: %v", ueID, err)
-		// 						log.Printf("Failed to marshal UeMetrics with UE ID [%s]: %v", ueID, err)
-		// 						continue
-		// 					}
-		// 					err = c.client.Set(strconv.FormatInt(ueID, 10), newUeJsonStr, 0).Err()
-		// 					if err != nil {
-		// 						xapp.Logger.Error("Failed to set UeMetrics into redis with UE ID [%s]: %v", ueID, err)
-		// 						log.Printf("Failed to set UeMetrics into redis with UE ID [%s]: %v", ueID, err)
-		// 						continue
-		// 					}
-		// 				}
-		// 			}
-		// 		} else if containerType == 6 {
-		// 			log.Printf("CU-UP Usage Report: ")
-
-		// 			oCUUPUE := pmContainer.RANContainer.Container.(*CUUPUsageReportType)
-
-		// 			for j := 0; j < oCUUPUE.CellResourceReportItemCount; j++ {
-		// 				cellResourceReportItem := oCUUPUE.CellResourceReportItems[j]
-
-		// 				log.Printf("nRCGI.PlmnID: %x", cellResourceReportItem.NRCGI.PlmnID.Buf)
-		// 				log.Printf("nRCGI.NRCellID: %x, Unused: %d", cellResourceReportItem.NRCGI.NRCellID.Buf, cellResourceReportItem.NRCGI.NRCellID.BitsUnused)
-
-		// 				servingCellID, err := e2sm.ParseNRCGI(cellResourceReportItem.NRCGI)
-		// 				if err != nil {
-		// 					xapp.Logger.Error("Failed to parse NRCGI in CU-UP Usage Report: %v", err)
-		// 					log.Printf("Failed to parse NRCGI in CU-UP Usage Report: %v", err)
-		// 					continue
-		// 				}
-
-		// 				for k := 0; k < cellResourceReportItem.UeResourceReportItemCount; k++ {
-		// 					ueResourceReportItem := cellResourceReportItem.UeResourceReportItems[k]
-
-		// 					log.Printf("C-RNTI: %x", ueResourceReportItem.CRNTI.Buf)
-
-		// 					ueID, err := e2sm.ParseInteger(ueResourceReportItem.CRNTI.Buf, ueResourceReportItem.CRNTI.Size)
-		// 					if err != nil {
-		// 						xapp.Logger.Error("Failed to parse C-RNTI in CU-UP Usage Report Serving Cell ID [%s]: %v", servingCellID, err)
-		// 						log.Printf("Failed to parse C-RNTI in CU-UP Usage Report Serving Cell ID [%s]: %v", servingCellID, err)
-		// 						continue
-		// 					}
-
-		// 					var ueMetrics *UeMetricsEntry
-		// 					if isUeExist, _ := c.client.Exists(strconv.FormatInt(ueID, 10)).Result(); isUeExist == 1 {
-		// 						ueJsonStr, _ := c.client.Get(strconv.FormatInt(ueID, 10)).Result()
-		// 						json.Unmarshal([]byte(ueJsonStr), ueMetrics)
-		// 					} else {
-		// 						ueMetrics = &UeMetricsEntry{}
-		// 					}
-
-		// 					ueMetrics.ServingCellID = servingCellID
-
-		// 					if flag {
-		// 						timestampPDCPBytes = timestamp
-		// 					}
-
-		// 					ueMetrics.MeasTimestampPDCPBytes.TVsec = timestamp.TVsec
-		// 					ueMetrics.MeasTimestampPDCPBytes.TVnsec = timestamp.TVnsec
-
-		// 					if ueResourceReportItem.PDCPBytesDL != nil {
-		// 						ueMetrics.PDCPBytesDL, err = e2sm.ParseInteger(ueResourceReportItem.PDCPBytesDL.Buf, ueResourceReportItem.PDCPBytesDL.Size)
-		// 						if err != nil {
-		// 							xapp.Logger.Error("Failed to parse PDCPBytesDL in CU-UP Usage Report with UE ID [%s]: %v", ueID, err)
-		// 							log.Printf("Failed to parse PDCPBytesDL in CU-UP Usage Report with UE ID [%s]: %v", ueID, err)
-		// 							continue
-		// 						}
-		// 					}
-
-		// 					if ueResourceReportItem.PDCPBytesUL != nil {
-		// 						ueMetrics.PDCPBytesUL, err = e2sm.ParseInteger(ueResourceReportItem.PDCPBytesUL.Buf, ueResourceReportItem.PDCPBytesUL.Size)
-		// 						if err != nil {
-		// 							xapp.Logger.Error("Failed to parse PDCPBytesUL in CU-UP Usage Report with UE ID [%s]: %v", ueID, err)
-		// 							log.Printf("Failed to parse PDCPBytesUL in CU-UP Usage Report with UE ID [%s]: %v", ueID, err)
-		// 							continue
-		// 						}
-		// 					}
-
-		// 					newUeJsonStr, err := json.Marshal(ueMetrics)
-		// 					if err != nil {
-		// 						xapp.Logger.Error("Failed to marshal UeMetrics with UE ID [%s]: %v", ueID, err)
-		// 						log.Printf("Failed to marshal UeMetrics with UE ID [%s]: %v", ueID, err)
-		// 						continue
-		// 					}
-		// 					err = c.client.Set(strconv.FormatInt(ueID, 10), newUeJsonStr, 0).Err()
-		// 					if err != nil {
-		// 						xapp.Logger.Error("Failed to set UeMetrics into redis with UE ID [%s]: %v", ueID, err)
-		// 						log.Printf("Failed to set UeMetrics into redis with UE ID [%s]: %v", ueID, err)
-		// 						continue
-		// 					}
-		// 				}
-		// 			}
-		// 		} else {
-		// 			xapp.Logger.Error("Unknown PF Container Type: %d", containerType)
-		// 			log.Printf("Unknown PF Container Type: %d", containerType)
-		// 			continue
-		// 		}
-		// 	}
-
-		// 	if flag {
-		// 		var cellMetrics *CellMetricsEntry
-		// 		if isCellExist, _ := c.client.Exists(cellIDHdr).Result(); isCellExist == 1 {
-		// 			cellJsonStr, _ := c.client.Get(cellIDHdr).Result()
-		// 			json.Unmarshal([]byte(cellJsonStr), cellMetrics)
-		// 		} else {
-		// 			cellMetrics = &CellMetricsEntry{}
-		// 		}
-
-		// 		if timestampPDCPBytes != nil {
-		// 			cellMetrics.MeasTimestampPDCPBytes.TVsec = timestampPDCPBytes.TVsec
-		// 			cellMetrics.MeasTimestampPDCPBytes.TVnsec = timestampPDCPBytes.TVnsec
-		// 		}
-		// 		if dlPDCPBytes != -1 {
-		// 			cellMetrics.PDCPBytesDL = dlPDCPBytes
-		// 		}
-		// 		if ulPDCPBytes != -1 {
-		// 			cellMetrics.PDCPBytesUL = ulPDCPBytes
-		// 		}
-		// 		if timestampPRB != nil {
-		// 			cellMetrics.MeasTimestampPRB.TVsec = timestampPRB.TVsec
-		// 			cellMetrics.MeasTimestampPRB.TVnsec = timestampPRB.TVnsec
-		// 		}
-		// 		if availPRBDL != -1 {
-		// 			cellMetrics.AvailPRBDL = availPRBDL
-		// 		}
-		// 		if availPRBUL != -1 {
-		// 			cellMetrics.AvailPRBUL = availPRBUL
-		// 		}
-
-		// 		newCellJsonStr, err := json.Marshal(cellMetrics)
-		// 		if err != nil {
-		// 			xapp.Logger.Error("Failed to marshal CellMetrics with CellID [%s]: %v", cellIDHdr, err)
-		// 			log.Printf("Failed to marshal CellMetrics with CellID [%s]: %v", cellIDHdr, err)
-		// 			continue
-		// 		}
-		// 		err = c.client.Set(cellIDHdr, newCellJsonStr, 0).Err()
-		// 		if err != nil {
-		// 			xapp.Logger.Error("Failed to set CellMetrics into redis with CellID [%s]: %v", cellIDHdr, err)
-		// 			log.Printf("Failed to set CellMetrics into redis with CellID [%s]: %v", cellIDHdr, err)
-		// 			continue
-		// 		}
-		// 	}
-		// }
-
 		log.Printf("RIC Indication Message Format: %d", indMsg.IndMsgType)
 
 		indMsgFormat1 := indMsg.IndMsg.(*IndicationMessageFormat1)
@@ -988,8 +290,8 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 			log.Printf("SubscriptID: %x", indMsgFormat1.SubscriptID.Buf)
 		}
 
-		if indMsgFormat1.MeasObjID != nil {
-			log.Printf("MeasObjID: %x", indMsgFormat1.MeasObjID.Buf)
+		if indMsgFormat1.CellObjID != nil {
+			log.Printf("CellObjID: %x", indMsgFormat1.CellObjID.Buf)
 		}
 
 		if indMsgFormat1.MeasInfoList != nil {
@@ -998,41 +300,32 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 				log.Printf("MeasInfoList[%d]: ", i)
 				MeasInfo := indMsgFormat1.MeasInfoList[i]
 
-				log.Printf("MeasID: %d", MeasInfo.MeasID)
-				log.Printf("MeasName: %x", MeasInfo.MeasName.Buf)
+				if MeasInfo.MeasType == 1 {
+					ID := MeasInfo.Measurement.(MeasID)
+					log.Printf("MeasID: %d", ID)
+				} else if MeasInfo.MeasType == 2 {
+					Name := MeasInfo.Measurement.(MeasName)
+					log.Printf("MeasName: %x", Name.Buf)
+				} else {
+					xapp.Logger.Error("Unknown Measurement Type: %d", MeasInfo.MeasType)
+					log.Printf("Unknown Measurement Type: %d", MeasInfo.MeasType)
+				}
+
 				if MeasInfo.LabelInfoList != nil {
 					log.Printf("LabelInfoCount: %d", MeasInfo.LabelInfoCount)
 					for j := 0; j < MeasInfo.LabelInfoCount; j++ {
 						log.Printf("LabelInfoList[%d]: ", j)
 						LabelInfo := MeasInfo.LabelInfoList[j]
-						//var MeasLabelInfoID []byte
 
-						if LabelInfo.CellGlobalID != nil {
-							log.Printf("CellGlobalID.PlmnID: %x", LabelInfo.CellGlobalID.PlmnID.Buf)
-							log.Printf("CellGlobalID.NRCellID: %x", LabelInfo.CellGlobalID.NRCellID.Buf)
-							//MeasLabelInfoID = LabelInfo.CellGlobalID.NRCellID.Buf
-						}
 						if LabelInfo.PLMNID != nil {
 							log.Printf("PLMNID: %x", LabelInfo.PLMNID.Buf)
-							//MeasLabelInfoID.Buf.Write(LabelInfo.PLMNID.Buf)
 						}
 						if LabelInfo.SliceID != nil {
 							log.Printf("SliceID.SST: %x", LabelInfo.SliceID.SST.Buf)
-							//MeasLabelInfoID.Write(LabelInfo.SliceID.Buf)
 							if LabelInfo.SliceID.SD != nil {
 								log.Printf("SliceID.SD: %x", LabelInfo.SliceID.SD.Buf)
 							}
 						}
-
-						/*
-							var ueMetrics *UeMetricsEntry
-							if isUeExist, _ := c.client.Exists(strconv.FormatInt(ueID, 10)).Result(); isUeExist == 1 {
-								ueJsonStr, _ := c.client.Get(strconv.FormatInt(ueID, 10)).Result()
-								json.Unmarshal([]byte(ueJsonStr), ueMetrics)
-							} else {
-								ueMetrics = &UeMetricsEntry{}
-							}
-						*/
 
 						log.Printf("FiveQI: %d", LabelInfo.FiveQI)
 						log.Printf("QCI: %d", LabelInfo.QCI)
@@ -1049,19 +342,56 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 						log.Printf("PreLabelOverride: %d", LabelInfo.PreLabelOverride)
 						log.Printf("StartEndInd: %d", LabelInfo.StartEndInd)
 
-						LabelInfoJsonStr, err := json.Marshal(LabelInfo)
+						database := os.Getenv("influxDatabase")
+						precision := os.Getenv("influxPrecision")
+						bp, err := influxdb.NewBatchPoints(influxdb.BatchPointsConfig{
+							Database:  database,
+							Precision: precision,
+						})
 						if err != nil {
-							xapp.Logger.Error("Failed to marshal MeasLabelInfo with CellGlobalID [%s]: %v", LabelInfo.CellGlobalID.NRCellID.Buf, err)
-							log.Printf("Failed to marshal MeasLabelInfo with CellGlobalID [%s]: %v", LabelInfo.CellGlobalID.NRCellID.Buf, err)
-							continue
-						}
-						err = c.client.Set(string(LabelInfo.CellGlobalID.NRCellID.Buf), LabelInfoJsonStr, 0).Err()
-						if err != nil {
-							xapp.Logger.Error("Failed to set MeasLabelInfo into redis with CellGlobalID [%s]: %v", LabelInfo.CellGlobalID.NRCellID.Buf, err)
-							log.Printf("Failed to set MeasLabelInfo into redis with CellGlobalID [%s]: %v", LabelInfo.CellGlobalID.NRCellID.Buf, err)
-							continue
+							xapp.Logger.Error("Failed to create batch points for influx: %v", err)
+							log.Printf("Failed to create batch points for influx: %v", err)
 						}
 
+						tags := make(map[string]string)
+						if LabelInfo.PLMNID != nil {
+							tags["PLMNID"] = string(LabelInfo.PLMNID.Buf)
+						}
+						if LabelInfo.SliceID != nil {
+							tags["SliceID.SST"] = string(LabelInfo.SliceID.SST.Buf)
+							if LabelInfo.SliceID.SD != nil {
+								tags["SliceID.SD"] = string(LabelInfo.SliceID.SD.Buf)
+							}
+						}
+
+						fields := make(map[string]interface{})
+						fields["FiveQI"] = LabelInfo.FiveQI
+						fields["QCI"] = LabelInfo.QCI
+						fields["QCImax"] = LabelInfo.QCImax
+						fields["QCImin"] = LabelInfo.QCImin
+						fields["ARPmax"] = LabelInfo.ARPmax
+						fields["ARPmin"] = LabelInfo.ARPmin
+						fields["BitrateRange"] = LabelInfo.BitrateRange
+						fields["LayerMU_MIMO"] = LabelInfo.LayerMU_MIMO
+						fields["SUM"] = LabelInfo.SUM
+						fields["DistBinX"] = LabelInfo.DistBinX
+						fields["DistBinY"] = LabelInfo.DistBinY
+						fields["DistBinZ"] = LabelInfo.DistBinZ
+						fields["PreLabelOverride"] = LabelInfo.PreLabelOverride
+						fields["StartEndInd"] = LabelInfo.StartEndInd
+
+						pt, err := influxdb.NewPoint("metrics", tags, fields, time.Now())
+						if err != nil {
+							xapp.Logger.Error("Failed to create point for influx: %v", err)
+							log.Printf("Failed to create point for influx: %v", err)
+						}
+
+						bp.AddPoint(pt)
+						err = c.client.Write(bp)
+						if err != nil {
+							xapp.Logger.Error("Failed to write influxdb: %v", err)
+							log.Printf("Failed to write influxdb: %v", err)
+						}
 					}
 				}
 			}
@@ -1082,11 +412,17 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 						MeasRecord := MeasData.MeasRecord[j]
 
 						if MeasRecord.MeasRecordType == 1 {
-							log.Printf("Integer: %d", MeasRecord.Integer)
+							Value := MeasRecord.MeasRecordValue.(Integer)
+							log.Printf("Integer: %d", Value)
 						} else if MeasRecord.MeasRecordType == 2 {
-							log.Printf("Real: %f", MeasRecord.Real)
+							Value := MeasRecord.MeasRecordValue.(Real)
+							log.Printf("Real: %f", Value)
 						} else if MeasRecord.MeasRecordType == 3 {
-							log.Printf("NoValue: %d", MeasRecord.NoValue)
+							Value := MeasRecord.MeasRecordValue.(Null)
+							log.Printf("NoValue: %d", Value)
+						} else {
+							xapp.Logger.Error("Unknown Measured Value Type: %d", MeasRecord.MeasRecordType)
+							log.Printf("Unknown Measured Value Type: %d", MeasRecord.MeasRecordType)
 						}
 					}
 				}
@@ -1103,50 +439,42 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 			log.Printf("SubscriptID: %x", indMsgFormat2.SubscriptID.Buf)
 		}
 
-		if indMsgFormat2.MeasObjID != nil {
-			log.Printf("MeasObjID: %x", indMsgFormat2.MeasObjID.Buf)
+		if indMsgFormat2.CellObjID != nil {
+			log.Printf("CellObjID: %x", indMsgFormat2.CellObjID.Buf)
 		}
 
-		if indMsgFormat2.MeasInfoList != nil {
-			log.Printf("MeasInfoCount: %d", indMsgFormat2.MeasInfoCount)
-			for i := 0; i < indMsgFormat2.MeasInfoCount; i++ {
-				log.Printf("MeasInfoList[%d]: ", i)
-				MeasInfo := indMsgFormat2.MeasInfoList[i]
+		if indMsgFormat2.MeasInfoUeidList != nil {
+			log.Printf("MeasInfoUeidCount: %d", indMsgFormat2.MeasInfoUeidCount)
+			for i := 0; i < indMsgFormat2.MeasInfoUeidCount; i++ {
+				log.Printf("MeasInfoUeidList[%d]: ", i)
+				MeasInfoUeid := indMsgFormat2.MeasInfoUeidList[i]
 
-				log.Printf("MeasID: %d", MeasInfo.MeasID)
-				log.Printf("MeasName: %x", MeasInfo.MeasName.Buf)
-				if MeasInfo.LabelInfoList != nil {
-					log.Printf("LabelInfoCount: %d", MeasInfo.LabelInfoCount)
-					for j := 0; j < MeasInfo.LabelInfoCount; j++ {
-						log.Printf("LabelInfoList[%d]: ", j)
-						LabelInfo := MeasInfo.LabelInfoList[j]
-						//var MeasLabelInfoID []byte
+				if MeasInfoUeid.MeasType == 1 {
+					ID := MeasInfoUeid.Measurement.(MeasID)
+					log.Printf("MeasID: %d", ID)
+				} else if MeasInfoUeid.MeasType == 2 {
+					Name := MeasInfoUeid.Measurement.(MeasName)
+					log.Printf("MeasName: %x", Name.Buf)
+				} else {
+					xapp.Logger.Error("Unknown Measurement Type: %d", MeasInfoUeid.MeasType)
+					log.Printf("Unknown Measurement Type: %d", MeasInfoUeid.MeasType)
+				}
 
-						if LabelInfo.CellGlobalID != nil {
-							log.Printf("CellGlobalID.PlmnID: %x", LabelInfo.CellGlobalID.PlmnID.Buf)
-							log.Printf("CellGlobalID.NRCellID: %x", LabelInfo.CellGlobalID.NRCellID.Buf)
-							//MeasLabelInfoID = LabelInfo.CellGlobalID.NRCellID.Buf
-						}
+				log.Printf("MatchingCondCount: %d", MeasInfoUeid.MatchingCondCount)
+				for j := 0; j < MeasInfoUeid.MatchingCondCount; j++ {
+					log.Printf("MatchingCondList[%d]: ", j)
+					MatchingCondition := MeasInfoUeid.MatchingCondList[j]
+					if MatchingCondition.ConditionType == 1 {
+						LabelInfo := MatchingCondition.Condition.(MeasLabelInfo)
 						if LabelInfo.PLMNID != nil {
 							log.Printf("PLMNID: %x", LabelInfo.PLMNID.Buf)
-							//MeasLabelInfoID.Buf.Write(LabelInfo.PLMNID.Buf)
 						}
 						if LabelInfo.SliceID != nil {
 							log.Printf("SliceID.SST: %x", LabelInfo.SliceID.SST.Buf)
-							//MeasLabelInfoID.Write(LabelInfo.SliceID.Buf)
 							if LabelInfo.SliceID.SD != nil {
 								log.Printf("SliceID.SD: %x", LabelInfo.SliceID.SD.Buf)
 							}
 						}
-
-						/*
-							var ueMetrics *UeMetricsEntry
-							if isUeExist, _ := c.client.Exists(strconv.FormatInt(ueID, 10)).Result(); isUeExist == 1 {
-								ueJsonStr, _ := c.client.Get(strconv.FormatInt(ueID, 10)).Result()
-								json.Unmarshal([]byte(ueJsonStr), ueMetrics)
-							} else {
-								ueMetrics = &UeMetricsEntry{}
-							}*/
 
 						log.Printf("FiveQI: %d", LabelInfo.FiveQI)
 						log.Printf("QCI: %d", LabelInfo.QCI)
@@ -1163,20 +491,91 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 						log.Printf("PreLabelOverride: %d", LabelInfo.PreLabelOverride)
 						log.Printf("StartEndInd: %d", LabelInfo.StartEndInd)
 
-						LabelInfoJsonStr, err := json.Marshal(LabelInfo)
+						database := os.Getenv("influxDatabase")
+						precision := os.Getenv("influxPrecision")
+						bp, err := influxdb.NewBatchPoints(influxdb.BatchPointsConfig{
+							Database:  database,
+							Precision: precision,
+						})
 						if err != nil {
-							xapp.Logger.Error("Failed to marshal MeasLabelInfo with CellGlobalID [%s]: %v", LabelInfo.CellGlobalID.NRCellID.Buf, err)
-							log.Printf("Failed to marshal MeasLabelInfo with CellGlobalID [%s]: %v", LabelInfo.CellGlobalID.NRCellID.Buf, err)
-							continue
-						}
-						err = c.client.Set(string(LabelInfo.CellGlobalID.NRCellID.Buf), LabelInfoJsonStr, 0).Err()
-						if err != nil {
-							xapp.Logger.Error("Failed to set MeasLabelInfo into redis with CellGlobalID [%s]: %v", LabelInfo.CellGlobalID.NRCellID.Buf, err)
-							log.Printf("Failed to set MeasLabelInfo into redis with CellGlobalID [%s]: %v", LabelInfo.CellGlobalID.NRCellID.Buf, err)
-							continue
+							xapp.Logger.Error("Failed to create batch points for influx: %v", err)
+							log.Printf("Failed to create batch points for influx: %v", err)
 						}
 
+						tags := make(map[string]string)
+						if LabelInfo.PLMNID != nil {
+							tags["PLMNID"] = string(LabelInfo.PLMNID.Buf)
+						}
+						if LabelInfo.SliceID != nil {
+							tags["SliceID.SST"] = string(LabelInfo.SliceID.SST.Buf)
+							if LabelInfo.SliceID.SD != nil {
+								tags["SliceID.SD"] = string(LabelInfo.SliceID.SD.Buf)
+							}
+						}
+
+						fields := make(map[string]interface{})
+						fields["FiveQI"] = LabelInfo.FiveQI
+						fields["QCI"] = LabelInfo.QCI
+						fields["QCImax"] = LabelInfo.QCImax
+						fields["QCImin"] = LabelInfo.QCImin
+						fields["ARPmax"] = LabelInfo.ARPmax
+						fields["ARPmin"] = LabelInfo.ARPmin
+						fields["BitrateRange"] = LabelInfo.BitrateRange
+						fields["LayerMU_MIMO"] = LabelInfo.LayerMU_MIMO
+						fields["SUM"] = LabelInfo.SUM
+						fields["DistBinX"] = LabelInfo.DistBinX
+						fields["DistBinY"] = LabelInfo.DistBinY
+						fields["DistBinZ"] = LabelInfo.DistBinZ
+						fields["PreLabelOverride"] = LabelInfo.PreLabelOverride
+						fields["StartEndInd"] = LabelInfo.StartEndInd
+
+						pt, err := influxdb.NewPoint("metrics", tags, fields, time.Now())
+						if err != nil {
+							xapp.Logger.Error("Failed to create point for influx: %v", err)
+							log.Printf("Failed to create point for influx: %v", err)
+						}
+
+						bp.AddPoint(pt)
+						err = c.client.Write(bp)
+						if err != nil {
+							xapp.Logger.Error("Failed to write influxdb: %v", err)
+							log.Printf("Failed to write influxdb: %v", err)
+						}
+					} else if MatchingCondition.ConditionType == 2 {
+						TestCondInfo := MatchingCondition.Condition.(TestConditionInfo)
+						log.Printf("TestConditionType: %d", TestCondInfo.TestConditionType)
+						log.Printf("Expression: %d", TestCondInfo.Expression)
+						if TestCondInfo.ValueType == 1 {
+							TestCondValue := TestCondInfo.Value.(int64)
+							log.Printf("Integer: %d", TestCondValue)
+						} else if TestCondInfo.ValueType == 2 {
+							TestCondValue := TestCondInfo.Value.(int64)
+							log.Printf("Enumerated: %d", TestCondValue)
+						} else if TestCondInfo.ValueType == 3 {
+							TestCondValue := TestCondInfo.Value.(int32)
+							log.Printf("Boolean: %d", TestCondValue)
+						} else if TestCondInfo.ValueType == 4 {
+							TestCondValue := TestCondInfo.Value.(BitString)
+							log.Printf("Bit string: %x, Unused: %d", TestCondValue.Buf, TestCondValue.BitsUnused)
+						} else if TestCondInfo.ValueType == 5 {
+							TestCondValue := TestCondInfo.Value.(OctetString)
+							log.Printf("Octet string: %x", TestCondValue.Buf)
+						} else if TestCondInfo.ValueType == 6 {
+							TestCondValue := TestCondInfo.Value.(PrintableString)
+							log.Printf("Printable string: %x", TestCondValue.Buf)
+						} else {
+							xapp.Logger.Error("Unknown Test Condition Value Type: %d", TestCondInfo.ValueType)
+							log.Printf("Unknown Test Condition Value Type: %d", TestCondInfo.ValueType)
+						}
+					} else {
+						xapp.Logger.Error("Unknown Matching Condition Type: %d", MatchingCondition.ConditionType)
+						log.Printf("Unknown Matching Condition Type: %d", MatchingCondition.ConditionType)
 					}
+				}
+
+				log.Printf("MatchedUeidCount: %d", MeasInfoUeid.MatchedUeidCount)
+				for j := 0; j < MeasInfoUeid.MatchedUeidCount; j++ {
+					log.Printf("MatchedUeid[%d]: %x", j, MeasInfoUeid.MatchedUeidList[j].Buf)
 				}
 			}
 		}
@@ -1196,11 +595,17 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 						MeasRecord := MeasData.MeasRecord[j]
 
 						if MeasRecord.MeasRecordType == 1 {
-							log.Printf("Integer: %d", MeasRecord.Integer)
+							Value := MeasRecord.MeasRecordValue.(Integer)
+							log.Printf("Integer: %d", Value)
 						} else if MeasRecord.MeasRecordType == 2 {
-							log.Printf("Real: %f", MeasRecord.Real)
+							Value := MeasRecord.MeasRecordValue.(Real)
+							log.Printf("Real: %f", Value)
 						} else if MeasRecord.MeasRecordType == 3 {
-							log.Printf("NoValue: %d", MeasRecord.NoValue)
+							Value := MeasRecord.MeasRecordValue.(Null)
+							log.Printf("NoValue: %d", Value)
+						} else {
+							xapp.Logger.Error("Unknown Measured Value Type: %d", MeasRecord.MeasRecordType)
+							log.Printf("Unknown Measured Value Type: %d", MeasRecord.MeasRecordType)
 						}
 					}
 				}

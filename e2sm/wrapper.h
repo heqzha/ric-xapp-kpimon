@@ -48,6 +48,10 @@
 #include "E2SM-KPM-IndicationMessage.h"
 #include "E2SM-KPM-IndicationMessage-Format1.h"
 #include "E2SM-KPM-IndicationMessage-Format2.h"
+#include "MatchingCondItem.h"
+#include "MeasurementCondUEidItem.h"
+#include "TestCondInfo.h"
+
 
 extern ssize_t e2sm_encode_ric_event_trigger_definition(void *buffer, size_t buf_size, size_t event_trigger_count, long RT_periods);
 extern ssize_t e2sm_encode_ric_action_definition(void *buffer, size_t buf_size, long ric_style_type);

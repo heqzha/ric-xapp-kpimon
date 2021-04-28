@@ -2,7 +2,6 @@
 #include "wrapper.h"
 
 ssize_t e2sm_encode_ric_event_trigger_definition(void *buffer, size_t buf_size, size_t event_trigger_count, long RT_periods) {
-//add formate2 code
 	E2SM_KPM_EventTriggerDefinition_t *eventTriggerDef = (E2SM_KPM_EventTriggerDefinition_t *)calloc(1, sizeof(E2SM_KPM_EventTriggerDefinition_t));
 	if(!eventTriggerDef) {
 		fprintf(stderr, "alloc EventTriggerDefinition failed\n");
