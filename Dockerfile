@@ -49,6 +49,12 @@ RUN cd e2sm && \
 
 WORKDIR /go/src/gerrit.o-ran-sc.org/r/scp/ric-app/kpimon
 
+### Fix error:
+# control/control.go:14:2: cannot find package "github.com/influxdata/influxdb1-client/v2" in any of:
+#         /opt/go/1.12/src/github.com/influxdata/influxdb1-client/v2 (from $GOROOT)
+#         /go/src/github.com/influxdata/influxdb1-client/v2 (from $GOPATH)
+RUN go get github.com/influxdata/influxdb1-client/v2
+
 RUN mkdir pkg
 
 RUN go build ./cmd/kpimon.go && pwd && ls -lat
