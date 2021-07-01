@@ -6,7 +6,7 @@
       "name": "xappkpimon",
       "image": {
         "registry": "docker.io",
-        "name": "heqzha/ric-app-kpimon",
+        "name": "heqzha/ric-xapp-kpimon",
         "tag": "1.0.0"
       }
     }
