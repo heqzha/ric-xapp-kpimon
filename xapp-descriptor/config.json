@@ -1,13 +1,13 @@
 {
   "xapp_name": "xappkpimon",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "containers": [
     {
       "name": "xappkpimon",
       "image": {
         "registry": "docker.io",
         "name": "heqzha/ric-xapp-kpimon",
-        "tag": "v1.0.0"
+        "tag": "v1.0.1"
       }
     }
   ],
