@@ -16,7 +16,8 @@ RUN rm -f rmr_${RMRVERSION}_amd64.deb rmr-dev_${RMRVERSION}_amd64.deb
 
 ARG XAPPFRAMEVERSION=v0.4.11
 WORKDIR /go/src/gerrit.o-ran-sc.org/r/ric-plt
-RUN git clone "https://gerrit.o-ran-sc.org/r/ric-plt/sdlgo"
+# sdlgo has some compiling issues, and kpimon hasn't used it yet.
+# RUN git clone "https://gerrit.o-ran-sc.org/r/ric-plt/sdlgo" # NOT in used yet
 RUN git clone -b ${XAPPFRAMEVERSION} "https://gerrit.o-ran-sc.org/r/ric-plt/xapp-frame"
 RUN cd xapp-frame && \
     GO111MODULE=on go mod vendor -v && \
