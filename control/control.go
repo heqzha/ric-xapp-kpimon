@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"gerrit.o-ran-sc.org/r/ric-plt/xapp-frame/pkg/xapp"
-	influxdb "github.com/influxdata/influxdb1-client/v2"
+	// influxdb "github.com/influxdata/influxdb1-client/v2"
 )
 
 type Control struct {
@@ -18,7 +18,7 @@ type Control struct {
 	eventCreateExpired int32                //maximum time for the RIC Subscription Request event creation procedure in the E2 Node
 	eventDeleteExpired int32                //maximum time for the RIC Subscription Request event deletion procedure in the E2 Node
 	rcChan             chan *xapp.RMRParams //channel for receiving rmr message
-	client             influxdb.Client      //influxdb client
+	// client             influxdb.Client      //influxdb client
 	eventCreateExpiredMap map[string]bool //map for recording the RIC Subscription Request event creation procedure is expired or not
 	eventDeleteExpiredMap map[string]bool //map for recording the RIC Subscription Request event deletion procedure is expired or not
 	eventCreateExpiredMu  *sync.Mutex     //mutex for eventCreateExpiredMap
@@ -38,21 +38,21 @@ func init() {
 }
 
 func NewControl() Control {
-	str := os.Getenv("ranList")
-	url := os.Getenv("influxAddr")
-	client, err := influxdb.NewHTTPClient(influxdb.HTTPConfig{
-		Addr:     url,
-		Username: "admin",
-		Password: "",
-	})
-	if err != nil {
-		panic(err)
-	}
-
+	// str := os.Getenv("ranList")
+	// url := os.Getenv("influxAddr")
+	// client, err := influxdb.NewHTTPClient(influxdb.HTTPConfig{
+	// 	Addr:     url,
+	// 	Username: "admin",
+	// 	Password: "",
+	// })
+	// if err != nil {
+	// 	panic(err)
+	// }
+	str := "gnb_734_733_b5c67788"
 	return Control{strings.Split(str, ","),
 		5, 5,
 		make(chan *xapp.RMRParams),
-		client,
+		// client,
 		make(map[string]bool),
 		make(map[string]bool),
 		&sync.Mutex{},
@@ -342,56 +342,56 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 						log.Printf("PreLabelOverride: %d", LabelInfo.PreLabelOverride)
 						log.Printf("StartEndInd: %d", LabelInfo.StartEndInd)
 
-						database := os.Getenv("influxDatabase")
-						precision := os.Getenv("influxPrecision")
-						bp, err := influxdb.NewBatchPoints(influxdb.BatchPointsConfig{
-							Database:  database,
-							Precision: precision,
-						})
-						if err != nil {
-							xapp.Logger.Error("Failed to create batch points for influx: %v", err)
-							log.Printf("Failed to create batch points for influx: %v", err)
-						}
+						// database := os.Getenv("influxDatabase")
+						// precision := os.Getenv("influxPrecision")
+						// bp, err := influxdb.NewBatchPoints(influxdb.BatchPointsConfig{
+						// 	Database:  database,
+						// 	Precision: precision,
+						// })
+						// if err != nil {
+						// 	xapp.Logger.Error("Failed to create batch points for influx: %v", err)
+						// 	log.Printf("Failed to create batch points for influx: %v", err)
+						// }
 
-						tags := make(map[string]string)
-						if LabelInfo.PLMNID != nil {
-							tags["PLMNID"] = string(LabelInfo.PLMNID.Buf)
-						}
-						if LabelInfo.SliceID != nil {
-							tags["SliceID.SST"] = string(LabelInfo.SliceID.SST.Buf)
-							if LabelInfo.SliceID.SD != nil {
-								tags["SliceID.SD"] = string(LabelInfo.SliceID.SD.Buf)
-							}
-						}
+						// tags := make(map[string]string)
+						// if LabelInfo.PLMNID != nil {
+						// 	tags["PLMNID"] = string(LabelInfo.PLMNID.Buf)
+						// }
+						// if LabelInfo.SliceID != nil {
+						// 	tags["SliceID.SST"] = string(LabelInfo.SliceID.SST.Buf)
+						// 	if LabelInfo.SliceID.SD != nil {
+						// 		tags["SliceID.SD"] = string(LabelInfo.SliceID.SD.Buf)
+						// 	}
+						// }
 
-						fields := make(map[string]interface{})
-						fields["FiveQI"] = LabelInfo.FiveQI
-						fields["QCI"] = LabelInfo.QCI
-						fields["QCImax"] = LabelInfo.QCImax
-						fields["QCImin"] = LabelInfo.QCImin
-						fields["ARPmax"] = LabelInfo.ARPmax
-						fields["ARPmin"] = LabelInfo.ARPmin
-						fields["BitrateRange"] = LabelInfo.BitrateRange
-						fields["LayerMU_MIMO"] = LabelInfo.LayerMU_MIMO
-						fields["SUM"] = LabelInfo.SUM
-						fields["DistBinX"] = LabelInfo.DistBinX
-						fields["DistBinY"] = LabelInfo.DistBinY
-						fields["DistBinZ"] = LabelInfo.DistBinZ
-						fields["PreLabelOverride"] = LabelInfo.PreLabelOverride
-						fields["StartEndInd"] = LabelInfo.StartEndInd
+						// fields := make(map[string]interface{})
+						// fields["FiveQI"] = LabelInfo.FiveQI
+						// fields["QCI"] = LabelInfo.QCI
+						// fields["QCImax"] = LabelInfo.QCImax
+						// fields["QCImin"] = LabelInfo.QCImin
+						// fields["ARPmax"] = LabelInfo.ARPmax
+						// fields["ARPmin"] = LabelInfo.ARPmin
+						// fields["BitrateRange"] = LabelInfo.BitrateRange
+						// fields["LayerMU_MIMO"] = LabelInfo.LayerMU_MIMO
+						// fields["SUM"] = LabelInfo.SUM
+						// fields["DistBinX"] = LabelInfo.DistBinX
+						// fields["DistBinY"] = LabelInfo.DistBinY
+						// fields["DistBinZ"] = LabelInfo.DistBinZ
+						// fields["PreLabelOverride"] = LabelInfo.PreLabelOverride
+						// fields["StartEndInd"] = LabelInfo.StartEndInd
 
-						pt, err := influxdb.NewPoint("metrics", tags, fields, time.Now())
-						if err != nil {
-							xapp.Logger.Error("Failed to create point for influx: %v", err)
-							log.Printf("Failed to create point for influx: %v", err)
-						}
+						// pt, err := influxdb.NewPoint("metrics", tags, fields, time.Now())
+						// if err != nil {
+						// 	xapp.Logger.Error("Failed to create point for influx: %v", err)
+						// 	log.Printf("Failed to create point for influx: %v", err)
+						// }
 
-						bp.AddPoint(pt)
-						err = c.client.Write(bp)
-						if err != nil {
-							xapp.Logger.Error("Failed to write influxdb: %v", err)
-							log.Printf("Failed to write influxdb: %v", err)
-						}
+						// bp.AddPoint(pt)
+						// err = c.client.Write(bp)
+						// if err != nil {
+						// 	xapp.Logger.Error("Failed to write influxdb: %v", err)
+						// 	log.Printf("Failed to write influxdb: %v", err)
+						// }
 					}
 				}
 			}
@@ -491,56 +491,56 @@ func (c *Control) handleIndication(params *xapp.RMRParams) (err error) {
 						log.Printf("PreLabelOverride: %d", LabelInfo.PreLabelOverride)
 						log.Printf("StartEndInd: %d", LabelInfo.StartEndInd)
 
-						database := os.Getenv("influxDatabase")
-						precision := os.Getenv("influxPrecision")
-						bp, err := influxdb.NewBatchPoints(influxdb.BatchPointsConfig{
-							Database:  database,
-							Precision: precision,
-						})
-						if err != nil {
-							xapp.Logger.Error("Failed to create batch points for influx: %v", err)
-							log.Printf("Failed to create batch points for influx: %v", err)
-						}
+						// database := os.Getenv("influxDatabase")
+						// precision := os.Getenv("influxPrecision")
+						// bp, err := influxdb.NewBatchPoints(influxdb.BatchPointsConfig{
+						// 	Database:  database,
+						// 	Precision: precision,
+						// })
+						// if err != nil {
+						// 	xapp.Logger.Error("Failed to create batch points for influx: %v", err)
+						// 	log.Printf("Failed to create batch points for influx: %v", err)
+						// }
 
-						tags := make(map[string]string)
-						if LabelInfo.PLMNID != nil {
-							tags["PLMNID"] = string(LabelInfo.PLMNID.Buf)
-						}
-						if LabelInfo.SliceID != nil {
-							tags["SliceID.SST"] = string(LabelInfo.SliceID.SST.Buf)
-							if LabelInfo.SliceID.SD != nil {
-								tags["SliceID.SD"] = string(LabelInfo.SliceID.SD.Buf)
-							}
-						}
+						// tags := make(map[string]string)
+						// if LabelInfo.PLMNID != nil {
+						// 	tags["PLMNID"] = string(LabelInfo.PLMNID.Buf)
+						// }
+						// if LabelInfo.SliceID != nil {
+						// 	tags["SliceID.SST"] = string(LabelInfo.SliceID.SST.Buf)
+						// 	if LabelInfo.SliceID.SD != nil {
+						// 		tags["SliceID.SD"] = string(LabelInfo.SliceID.SD.Buf)
+						// 	}
+						// }
 
-						fields := make(map[string]interface{})
-						fields["FiveQI"] = LabelInfo.FiveQI
-						fields["QCI"] = LabelInfo.QCI
-						fields["QCImax"] = LabelInfo.QCImax
-						fields["QCImin"] = LabelInfo.QCImin
-						fields["ARPmax"] = LabelInfo.ARPmax
-						fields["ARPmin"] = LabelInfo.ARPmin
-						fields["BitrateRange"] = LabelInfo.BitrateRange
-						fields["LayerMU_MIMO"] = LabelInfo.LayerMU_MIMO
-						fields["SUM"] = LabelInfo.SUM
-						fields["DistBinX"] = LabelInfo.DistBinX
-						fields["DistBinY"] = LabelInfo.DistBinY
-						fields["DistBinZ"] = LabelInfo.DistBinZ
-						fields["PreLabelOverride"] = LabelInfo.PreLabelOverride
-						fields["StartEndInd"] = LabelInfo.StartEndInd
+						// fields := make(map[string]interface{})
+						// fields["FiveQI"] = LabelInfo.FiveQI
+						// fields["QCI"] = LabelInfo.QCI
+						// fields["QCImax"] = LabelInfo.QCImax
+						// fields["QCImin"] = LabelInfo.QCImin
+						// fields["ARPmax"] = LabelInfo.ARPmax
+						// fields["ARPmin"] = LabelInfo.ARPmin
+						// fields["BitrateRange"] = LabelInfo.BitrateRange
+						// fields["LayerMU_MIMO"] = LabelInfo.LayerMU_MIMO
+						// fields["SUM"] = LabelInfo.SUM
+						// fields["DistBinX"] = LabelInfo.DistBinX
+						// fields["DistBinY"] = LabelInfo.DistBinY
+						// fields["DistBinZ"] = LabelInfo.DistBinZ
+						// fields["PreLabelOverride"] = LabelInfo.PreLabelOverride
+						// fields["StartEndInd"] = LabelInfo.StartEndInd
 
-						pt, err := influxdb.NewPoint("metrics", tags, fields, time.Now())
-						if err != nil {
-							xapp.Logger.Error("Failed to create point for influx: %v", err)
-							log.Printf("Failed to create point for influx: %v", err)
-						}
+						// pt, err := influxdb.NewPoint("metrics", tags, fields, time.Now())
+						// if err != nil {
+						// 	xapp.Logger.Error("Failed to create point for influx: %v", err)
+						// 	log.Printf("Failed to create point for influx: %v", err)
+						// }
 
-						bp.AddPoint(pt)
-						err = c.client.Write(bp)
-						if err != nil {
-							xapp.Logger.Error("Failed to write influxdb: %v", err)
-							log.Printf("Failed to write influxdb: %v", err)
-						}
+						// bp.AddPoint(pt)
+						// err = c.client.Write(bp)
+						// if err != nil {
+						// 	xapp.Logger.Error("Failed to write influxdb: %v", err)
+						// 	log.Printf("Failed to write influxdb: %v", err)
+						// }
 					} else if MatchingCondition.ConditionType == 2 {
 						TestCondInfo := MatchingCondition.Condition.(TestConditionInfo)
 						log.Printf("TestConditionType: %d", TestCondInfo.TestConditionType)
