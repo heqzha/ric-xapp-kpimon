@@ -16,7 +16,7 @@ RUN rm -f rmr_${RMRVERSION}_amd64.deb rmr-dev_${RMRVERSION}_amd64.deb
 
 ARG XAPPFRAMEVERSION=v0.4.11
 WORKDIR /go/src/gerrit.o-ran-sc.org/r/ric-plt
-# sdlgo has some compiling issues, and kpimon hasn't used it yet.
+# [U] sdlgo has some compiling issues, and kpimon hasn't used it yet.
 # RUN git clone "https://gerrit.o-ran-sc.org/r/ric-plt/sdlgo" # NOT in used yet
 RUN git clone -b ${XAPPFRAMEVERSION} "https://gerrit.o-ran-sc.org/r/ric-plt/xapp-frame"
 RUN cd xapp-frame && \
@@ -50,7 +50,7 @@ RUN cd e2sm && \
 
 WORKDIR /go/src/gerrit.o-ran-sc.org/r/scp/ric-app/kpimon
 
-### Fix error:
+### [F] Fix error:
 # control/control.go:14:2: cannot find package "github.com/influxdata/influxdb1-client/v2" in any of:
 #         /opt/go/1.12/src/github.com/influxdata/influxdb1-client/v2 (from $GOROOT)
 #         /go/src/github.com/influxdata/influxdb1-client/v2 (from $GOPATH)
@@ -71,3 +71,5 @@ COPY --from=kpimonbuild /go/src/gerrit.o-ran-sc.org/r/ric-plt/xapp-frame/config/
 WORKDIR /go/src/gerrit.o-ran-sc.org/r/scp/ric-app/kpimon
 COPY --from=kpimonbuild /go/src/gerrit.o-ran-sc.org/r/scp/ric-app/kpimon/kpimon .
 
+# [U] add cmd to run kpimon
+CMD ./kpimon -f ../../../ric-plt/xapp-frame/config/config-file.yaml
